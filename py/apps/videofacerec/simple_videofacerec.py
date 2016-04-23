@@ -9,6 +9,7 @@ from Queue import Queue
 from threading import Thread
 # cv2 and helper:
 import cv2
+from imutils import paths
 from helper.common import *
 from helper.video import *
 # add facerec to system path
@@ -176,17 +177,19 @@ class App(object):
                      cv2.imwrite("faces/"+str(time.time())+".jpg", face)
                   else:
                      foundPerson = self.model.subject_names[prediction]
-                  if foundPerson not in whosHere.keys() and foundPerson != 'Unknown':
-                    vq.put("Hello "+foundPerson)
                   if len(oldLoc) > 0:  # Determine person with heuristics based on last location
                     for key,value in oldLoc.iteritems():
                        if np.isclose(value, r, atol=50.0).all() and foundPerson != key:  # Within 50 pixels of any direction
-                         # Make sure we don't already have enough photos of this person... limit 200
+                         # Make sure we don't already have enough photos of this person... limit 200 and the image isn't toooooooo blurry. 
                          DIR = "pictures/"+key
-                         if len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))]) < 200:
+                         personImgCount = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
+                         blurLevel = cv2.Laplacian(face, cv2.CV_64F).var()
+                         if personImgCount < 200 and blurLevel > 400:  # blurLevel higher the better
                            cv2.imwrite(DIR+"/"+str(time.time())+".jpg", face)
                          foundPerson = key
                          marker = "*"
+                  if foundPerson not in whosHere.keys() and foundPerson != 'Unknown':
+                    vq.put("Hello "+foundPerson)
                   whosHere.update({foundPerson:str(time.time())})
                   # Draw the face area in image:
                   cv2.rectangle(imgout, (x0,y0),(x1,y1),(0,255,0),2)
