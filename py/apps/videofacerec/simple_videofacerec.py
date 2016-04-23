@@ -33,6 +33,7 @@ from gtts import gTTS
 import os.path
 import math
 import numpy 
+import Image
 
 vq = Queue(maxsize=0)
 vnum_threads = 1
@@ -41,7 +42,7 @@ def speak(vq):
   while True:
     if vq.qsize() > 0:
       name = vq.get()
-      audio_file = "/tmp/"+name.replace(" ", "_")+".mp3"
+      audio_file = "audio/"+name.replace(" ", "_")+".mp3"
       if not os.path.isfile(audio_file):  # Check if we already have the file saved so we don't pass it to google
         print("Audio doesn't exist, Calling to Google")
         tts = gTTS(text=name, lang="en")
@@ -119,7 +120,11 @@ def read_images(path, image_size=None):
                     im = cv2.imread(os.path.join(subject_path, filename), cv2.IMREAD_GRAYSCALE)
                     # resize to given size (if given)
                     if (image_size is not None):
+                      try:
                         im = cv2.resize(im, image_size)
+                      except:
+                        print "Image {0}/{1} bad. Please delete...".format(subject_path, filename)
+                        raise
                     X.append(np.asarray(im, dtype=np.uint8))
                     y.append(c)
                 except IOError, (errno, strerror):
@@ -133,7 +138,7 @@ def read_images(path, image_size=None):
 class App(object):
     def __init__(self, model, camera_id, cascade_filename):
         self.model = model
-        self.detector = CascadedDetector(cascade_fn=cascade_filename, minNeighbors=10, scaleFactor=1.05)
+        self.detector = CascadedDetector(cascade_fn=cascade_filename, minNeighbors=5, scaleFactor=1.1)
         self.cam = create_capture(camera_id)
             
     def run(self):
@@ -147,16 +152,17 @@ class App(object):
         while True:
             ret, frame = self.cam.read()
             # Resize the frame to half the original size for speeding up the detection process:
-            img = cv2.resize(frame, (frame.shape[1], frame.shape[0]), interpolation = cv2.INTER_CUBIC)
+            img = cv2.resize(frame, (frame.shape[1]/2, frame.shape[0]/2), interpolation = cv2.INTER_CUBIC)
             # Clean up image contrast automatically
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            img = clahe.apply(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
             imgout = img.copy()
+            img = clahe.apply(cv2.cvtColor(img,cv2.COLOR_BGR2GRAY))
             # See if we've found someone
             if self.detector.detect(img).size == 0:
               foundPerson = None
             else:
               for i,r in enumerate(self.detector.detect(img)):
+                  marker = ""
                   x0,y0,x1,y1 = r
                   # (1) Get face, (2) Convert to grayscale & (3) resize to image_size:
                   face = img[y0:y1, x0:x1]
@@ -172,26 +178,30 @@ class App(object):
                      foundPerson = self.model.subject_names[prediction]
                   if foundPerson not in whosHere.keys() and foundPerson != 'Unknown':
                     vq.put("Hello "+foundPerson)
-                  if len(oldLoc) > 0 and foundPerson == 'Unknown' and distance < 500:  # Determine person with heuristics based on last location
+                  if len(oldLoc) > 0:  # Determine person with heuristics based on last location
                     for key,value in oldLoc.iteritems():
-                       if np.isclose(value, r, atol=50.0).all():  # Within 10 pixels of any direction
-                         print("Was "+foundPerson+" now "+key+" based on heuristics")
-                         cv2.imwrite("pictures/"+key+"/"+str(time.time())+".jpg", face)
+                       if np.isclose(value, r, atol=50.0).all() and foundPerson != key:  # Within 50 pixels of any direction
+                         # Make sure we don't already have enough photos of this person... limit 200
+                         DIR = "pictures/"+key
+                         if len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))]) < 200:
+                           cv2.imwrite(DIR+"/"+str(time.time())+".jpg", face)
                          foundPerson = key
+                         marker = "*"
                   whosHere.update({foundPerson:str(time.time())})
                   # Draw the face area in image:
                   cv2.rectangle(imgout, (x0,y0),(x1,y1),(0,255,0),2)
                   # Draw the predicted name (folder name...):
-                  draw_str(imgout, (x0-20,y0-20), foundPerson+" "+str(round(distance,0)))
+                  draw_str(imgout, (x0,y0-5), foundPerson+marker+" "+str(round(distance,0)))
                   if foundPerson != 'Unknown':
                     oldLoc.update({foundPerson:r})  # Update old person location for heuristics
             checkHere = whosHere.copy()
             for key, value in checkHere.iteritems():  # Check when we last saw someone and remove if longer than 10 seconds.
-              if float(value) < (time.time() - 5):
-                print(key+" has left")
+              if float(value) < (time.time() - 30):
                 del whosHere[key]
+                if key != 'Unknown':  # oldLoc doesn't ever contain Unknown, because we're aiming to eliminate unknowns.
+                  del oldLoc[key]
             i = str(whosHere.keys())
-            print("\rI see: "+str(whosHere))
+            draw_str(imgout, (1, frame.shape[0]/2 - 5), str(whosHere.keys()))  # drop string of who's seen
             cv2.imshow('Jarvis 0.4a', imgout)
             # Show image & exit on escape:
             ch = cv2.waitKey(1)
@@ -208,8 +218,8 @@ if __name__ == '__main__':
     usage = "usage: %prog [options] model_filename"
     # Add options for training, resizing, validation and setting the camera id:
     parser = OptionParser(usage=usage)
-    parser.add_option("-r", "--resize", action="store", type="string", dest="size", default="200x200", 
-        help="Resizes the given dataset to a given size in format [width]x[height] (default: 200x200).")
+    parser.add_option("-r", "--resize", action="store", type="string", dest="size", default="100x100", 
+        help="Resizes the given dataset to a given size in format [width]x[height] (default: 100x100).")
     parser.add_option("-v", "--validate", action="store", dest="numfolds", type="int", default=None, 
         help="Performs a k-fold cross validation on the dataset, if given (default: None).")
     parser.add_option("-t", "--train", action="store", dest="dataset", type="string", default=None,

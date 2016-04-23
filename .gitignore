@@ -3,3 +3,4 @@
 serverlog.log
 py/apps/videofacerec/faces/*
 py/apps/videofacerec/pictures/*
+py/apps/videofacerec/audio/*
