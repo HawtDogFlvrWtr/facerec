@@ -168,23 +168,24 @@ class App(object):
                   # (1) Get face, (2) Convert to grayscale & (3) resize to image_size:
                   face = img[y0:y1, x0:x1]
                   face = cv2.resize(face, self.model.image_size, interpolation = cv2.INTER_CUBIC)
+                  blurLevel = cv2.Laplacian(face, cv2.CV_64F).var()
                   # Get a prediction from the model:
                   predInfo = self.model.predict(face)
                   distance = predInfo[1]['distances'][0]
                   prediction = predInfo[0]
                   if distance > 200: #and not trainName:
                      foundPerson = 'Unknown'
-                     cv2.imwrite("faces/"+str(time.time())+".jpg", face)
+                     if blurLevel > 400:
+                       cv2.imwrite("faces/"+str(time.time())+".jpg", face)
                   else:
                      foundPerson = self.model.subject_names[prediction]
-                  if len(oldLoc) > 0:  # Determine person with heuristics based on last location
+                  if len(oldLoc) > 0 and distance > 200:  # Determine person with heuristics based on last location
                     for key,value in oldLoc.iteritems():
                        if np.isclose(value, r, atol=50.0).all() and foundPerson != key:  # Within 50 pixels of any direction
                          # Make sure we don't already have enough photos of this person... limit 200 and the image isn't toooooooo blurry. 
                          DIR = "pictures/"+key
                          personImgCount = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
-                         blurLevel = cv2.Laplacian(face, cv2.CV_64F).var()
-                         if personImgCount < 200 and blurLevel > 400:  # blurLevel higher the better
+                         if personImgCount < 400 and blurLevel > 400:  # blurLevel higher the better
                            cv2.imwrite(DIR+"/"+str(time.time())+".jpg", face)
                          foundPerson = key
                          marker = "*"
@@ -199,7 +200,7 @@ class App(object):
                     oldLoc.update({foundPerson:r})  # Update old person location for heuristics
             checkHere = whosHere.copy()
             for key, value in checkHere.iteritems():  # Check when we last saw someone and remove if longer than 10 seconds.
-              if float(value) < (time.time() - 30):
+              if float(value) < (time.time() - 5):
                 del whosHere[key]
                 if key != 'Unknown':  # oldLoc doesn't ever contain Unknown, because we're aiming to eliminate unknowns.
                   del oldLoc[key]
