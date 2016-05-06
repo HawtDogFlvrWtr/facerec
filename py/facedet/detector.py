@@ -64,19 +64,20 @@ class CascadedDetector(Detector):
 	personal experience, all I can say is: there's no parameter combination which *just 
 	works*.	
 	"""
-	def __init__(self, cascade_fn="./cascades/haarcascade_frontalface_alt2.xml", scaleFactor=1.2, minNeighbors=5, minSize=(30,30)):
+	def __init__(self, cascade_fn="./cascades/haarcascade_frontalface_alt2.xml", scaleFactor=1.2, minNeighbors=2, minSize=(30,30), maxSize=(200,200)):
 		if not os.path.exists(cascade_fn):
 			raise IOError("No valid cascade found for path=%s." % cascade_fn)
 		self.cascade = cv2.CascadeClassifier(cascade_fn)
 		self.scaleFactor = scaleFactor
 		self.minNeighbors = minNeighbors
 		self.minSize = minSize
+                self.maxSize = maxSize
 	
 	def detect(self, src):
 		if np.ndim(src) == 3:
 			src = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
 		src = cv2.equalizeHist(src)
-		rects = self.cascade.detectMultiScale(src, scaleFactor=self.scaleFactor, minNeighbors=self.minNeighbors, minSize=self.minSize)
+		rects = self.cascade.detectMultiScale(src, scaleFactor=self.scaleFactor, minNeighbors=self.minNeighbors, minSize=self.minSize, maxSize=self.maxSize)
 		if len(rects) == 0:
 			return np.ndarray((0,))
 		rects[:,2:] += rects[:,:2]
